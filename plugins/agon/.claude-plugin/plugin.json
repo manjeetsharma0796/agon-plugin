@@ -1,0 +1,8 @@
+{
+  "name": "agon",
+  "version": "0.1.0",
+  "description": "Agon inside Claude Code: your agent's spending limit above the prompt, and a live Solana token pane that hands trades to the agent as a draft you send",
+  "author": { "name": "Agon" },
+  "keywords": ["solana", "trading", "agent", "spending-limit", "jupiter"],
+  "types": "./types/index.d.ts"
+}

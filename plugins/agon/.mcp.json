@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "agon": {
+      "type": "http",
+      "url": "https://agon-dev.onrender.com/mcp"
+    }
+  }
+}

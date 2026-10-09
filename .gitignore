@@ -1,0 +1,5 @@
+.env
+.env.*
+node_modules/
+plugins/agon/.claude-plugin/types/*
+!plugins/agon/.claude-plugin/types/.gitignore

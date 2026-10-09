@@ -1,0 +1,16 @@
+{
+  "name": "agon",
+  "owner": { "name": "Agon" },
+  "metadata": {
+    "description": "Give your agent a budget, not your keys."
+  },
+  "plugins": [
+    {
+      "name": "agon",
+      "source": "./plugins/agon",
+      "description": "Your agent's spending limit above the prompt, a live Solana token pane, and guard checks before any trade",
+      "version": "0.1.0",
+      "author": { "name": "Agon" }
+    }
+  ]
+}
