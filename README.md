@@ -6,94 +6,65 @@ Agon puts a crypto trading screen inside Claude Code: live Solana tokens and cha
 paper trading with pretend money, and paper bots. Every order is checked by Agon's guard before it
 goes anywhere. Agon never asks for, stores or uses a private key.
 
-New to Claude? Follow the steps below in order. Every command is in a grey box: press the copy
-button at its top right, paste it, and press Enter.
+## Before you start
 
----
-
-## What you need
-
-- **A Claude account on a paid plan**: Pro, Max, Team or Enterprise. The free claude.ai plan does
-  not include Claude Code. Sign up or upgrade at [claude.ai](https://claude.ai).
-- **A computer** running macOS 13 or newer, Windows 10 or newer, or Linux (Ubuntu 20.04 or newer).
+- **Claude Code 2.1.286 or newer**, installed and signed in. If you do not have it yet, follow
+  Anthropic's [install guide](https://code.claude.com/docs/en/setup). Check your version with
+  `claude --version`; update with `claude update`.
+- **A paid Claude plan** (Pro, Max, Team or Enterprise): the free claude.ai plan does not include
+  Claude Code.
 - **Optional: a Solana wallet address**, the public one only (for example from Phantom). It names
-  your paper account. You can also use Agon without one at first.
+  your paper account.
 
----
+## Quick install: paste one prompt
 
-## Step 1. Open a terminal
+Start Claude Code (type `claude` in a terminal, or open the desktop app's **Code** tab), then copy
+this whole box into the prompt and press Enter. Claude runs the install and asks before each command.
 
-The terminal is a window where you type commands.
-
-- **macOS**: press `Cmd + Space`, type `Terminal`, press Enter.
-- **Windows**: press the Windows key, type `PowerShell`, press Enter.
-- **Linux**: press `Ctrl + Alt + T`.
-
-## Step 2. Install Claude Code
-
-Copy the command for your computer, paste it into the terminal and press Enter. It runs quietly
-for a minute; wait until you can type again.
-
-**macOS or Linux:**
-
-```bash
-curl -fsSL https://claude.ai/install.sh | bash
+```
+Install the Agon plugin for Claude Code for me:
+1. Run: claude plugin marketplace add manjeetsharma0796/agon-plugin
+2. Run: claude plugin install agon@agon
+3. Run: claude plugin list, and check that agon@agon says enabled.
+If a command fails, show me the exact error and what to do next. Do not change any other setting.
+When it is installed, tell me to type /reload-plugins and then /agon.
 ```
 
-**Windows (PowerShell):**
+When Claude is done, type these two in the prompt (Claude cannot run them for you):
 
-```powershell
-irm https://claude.ai/install.ps1 | iex
+```
+/reload-plugins
 ```
 
-Then **close the terminal and open a new one**, so it finds the new command.
-
-## Step 3. Check that it installed
-
-```bash
-claude --version
+```
+/agon
 ```
 
-You should see a version number such as `2.1.292 (Claude Code)`. Agon needs **2.1.286 or newer**.
-If yours is older, update it:
+## Step by step install
 
-```bash
-claude update
-```
+Prefer to do it yourself? In a terminal:
 
-If the terminal says `claude` is not found, see
-[Troubleshoot installation](https://code.claude.com/docs/en/troubleshoot-install).
-
-## Step 4. Sign in to Claude
-
-```bash
-claude
-```
-
-A browser window opens. Sign in with your Claude account and allow access. When the terminal shows
-a prompt box, you are signed in. Type `/exit` and press Enter to leave for now.
-
-## Step 5. Install Agon
-
-Run these two commands, one after the other:
+**1. Add the Agon marketplace**
 
 ```bash
 claude plugin marketplace add manjeetsharma0796/agon-plugin
 ```
 
+**2. Install the plugin**
+
 ```bash
 claude plugin install agon@agon
 ```
 
-The second one ends with `Successfully installed plugin: agon@agon`.
+It ends with `Successfully installed plugin: agon@agon`.
 
-## Step 6. Start Claude Code and open Agon
+**3. Start Claude Code and open Agon**
 
 ```bash
 claude
 ```
 
-Then type this in the Claude prompt and press Enter:
+Then type this in the Claude prompt:
 
 ```
 /agon
@@ -105,7 +76,11 @@ The Agon pane opens with its tabs along the top: **Start**, **Discover**, **Watc
 > The first time, Agon may take up to a minute to answer: its server sleeps when nobody is using it
 > and wakes on the first request.
 
-## Step 7. Save your wallet address (public only)
+---
+
+# Getting started
+
+## 1. Save your wallet address (public only)
 
 On the **Start** tab, paste your **public** Solana address into the box and press **Save** (or
 Enter). Or type this in the Claude prompt, with your own address:
@@ -117,7 +92,7 @@ Enter). Or type this in the Claude prompt, with your own address:
 This address only names your paper account. **Never paste a private key or seed phrase**: Agon
 refuses anything that looks like one, and nobody should ever ask you for it.
 
-## Step 8. Make your first paper trade
+## 2. Make your first paper trade
 
 Paper trades use pretend money: every paper account starts with **1,000 USDC**.
 
@@ -130,7 +105,7 @@ Agon's guard checks the trade first (price impact, slippage, and whether the tok
 freeze authority is still open). You see the result with each reason and its number. Press any
 **ⓘ** button to read what a field means.
 
-## Step 9. Look at your portfolio
+## 3. Look at your portfolio
 
 Open the **Portfolio** tab:
 
@@ -139,16 +114,16 @@ Open the **Portfolio** tab:
 - your allocation, with how many of each token you hold;
 - **▸ Latest fills**: press it to see every trade.
 
-## Step 10. Try a paper bot
+## 4. Try a paper bot
 
 Open the **Bots** tab, choose **DCA** or **Trail**, set the budget with the sliders and press
 **▸ Start paper bot**. Every bot has an **On / Off** switch: flip it to **Off** to pause the bot at once, and
 back to **On** to resume. Bots run only while Claude Code is open.
 
-## Step 11. Ask Claude
+## 5. Ask Claude
 
 You can also just ask, in plain words. Copy any of these into the Claude prompt and replace
-`YOUR_PUBLIC_WALLET_ADDRESS` with the address you saved in Step 7 (Claude needs it to find your
+`YOUR_PUBLIC_WALLET_ADDRESS` with the address you saved in step 1 (Claude needs it to find your
 paper account):
 
 ```
@@ -165,13 +140,11 @@ Paper buy 10 USDC of SOL in my Agon paper account YOUR_PUBLIC_WALLET_ADDRESS and
 
 ---
 
-## Using the Claude desktop app instead
+## Using the Claude desktop app
 
-If you prefer the desktop app, download it from [claude.com/download](https://claude.com/download),
-sign in, open the **Code** tab, then:
-
-1. Do **Step 5** once in a terminal (the desktop app and the terminal share the same plugins).
-2. In the desktop app, start a new session in any folder and type `/agon`.
+The desktop app and the terminal share the same plugins. In the app, open the **Code** tab, start a
+session in any folder, and paste the [quick install prompt](#quick-install-paste-one-prompt). Then type
+`/reload-plugins` and `/agon`.
 
 ---
 
