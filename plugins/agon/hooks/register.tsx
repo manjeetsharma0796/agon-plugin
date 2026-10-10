@@ -1722,6 +1722,8 @@ export const register: Register = on => {
     void publishBots($)
     void probePaper($)
     $.clock.every(60_000, () => void probePaper($))
+    // The paper portfolio while a pane is open: every 30 s, and at once on a change (watchPaper).
+    $.clock.every(30_000, async () => void ((await ourPanes($)).length > 0 ? readPaperPortfolio($) : undefined))
 
     return next(e)
   })
@@ -1791,6 +1793,7 @@ export const register: Register = on => {
     } catch {
       return next(e)
     }
+    if (!watching) void watchPaper($)
     const view = (await $.state.get(PANE_VIEW)).value ?? 'discover'
     const body =
       view === 'start'
@@ -5403,6 +5406,27 @@ async function readPaperPortfolio($: Dollar) {
     portfolioError: a.ok ? null : a.reason,
     note: a.ok ? a.value.note || prev.note : prev.note,
   })
+}
+
+// A paper change made anywhere (a curl, another session, another device): the server holds this
+// request until the saved wallet's paper account moves, 8 s at most, so a change is read at once. An
+// answer that is not that (an older server, no network) asks again in 30 s. It runs while a pane is
+// open, 1 chain at a time, and the pane's next draw starts it again.
+let watching = false
+async function watchPaper($: Dollar) {
+  watching = true
+  let wait = 30_000
+  try {
+    const account = await paperAccountOf($)
+    if (!account || (await ourPanes($)).length === 0) return void (watching = false)
+    const res = await $.http.fetch(`${MCP}/paper/changes?account=${account}`)
+    const a = res.ok ? (JSON.parse(res.text) as { changed?: unknown }) : {}
+    if (typeof a.changed === 'boolean') wait = 0
+    if (a.changed === true) await readPaperPortfolio($)
+  } catch {
+    // Asked again in 30 s; the 30 s reread covers the gap.
+  }
+  $.clock.after(wait, () => void watchPaper($))
 }
 
 const orderWords = (o: PaperOrder) => (o.side === 'buy' ? `paper buy of ${o.usdc} USDC` : `paper sell of ${o.pct}%`)
