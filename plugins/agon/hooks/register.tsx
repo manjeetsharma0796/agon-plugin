@@ -3099,7 +3099,10 @@ function shareBar($: Dollar, e: Site, share: number, cells: number, key: string,
   )
 }
 
-type AllocItem = { label: string; value: number; mint?: string; qty?: string; short?: string }
+// `pnl`, on the paper account only: the holding's P&L against what it cost, why no cost is recorded,
+// or cash for USDC. Given, each row gets a second line: how many are held, and that.
+type AllocPnl = { usd: number; pct: number | null } | { why: string } | { cash: true }
+type AllocItem = { label: string; value: number; mint?: string; qty?: string; short?: string; pnl?: AllocPnl }
 type AllocPart = AllocItem & { color: string; share: number }
 // The five largest holdings and Others, each with its colour and share of the total.
 function allocParts(items: AllocItem[]): AllocPart[] {
@@ -3116,24 +3119,47 @@ function allocParts(items: AllocItem[]): AllocPart[] {
 function allocLegend($: Dollar, e: Site, key: string, parts: AllocPart[], inner: number) {
   const { Box, Text } = $.ui.resolve(e)
   const wide = inner >= 52
+  // With P&L the amount held moves to the second line, under the symbol, beside the P&L.
+  const two = parts.some(x => x.pnl)
+  const pnlText = (p: AllocPnl) =>
+    'usd' in p ? (
+      <Text color={tone(p.usd) ?? AG.dim}>{`${signed(p.usd)}${p.pct == null ? '' : ` (${pctSigned(p.pct, 1)})`}`}</Text>
+    ) : (
+      <Text color={AG.dim}>{'cash' in p ? 'cash' : 'cost not recorded'}</Text>
+    )
   return (
     <Box key={`${key}-legend`} flexDirection="column" flexGrow={1} minWidth={20}>
-      {parts.map(x => (
-        <Box key={`${key}-l-${x.label}`} flexDirection="row" columnGap={1}>
-          <Text color={x.color}>●</Text>
-          <Text wrap="truncate-end">{x.label}</Text>
-          {x.mint && copyMint($, e, `${key}-cp-${x.label}`, x.mint)}
-          {!wide && x.short && <Text color={AG.dim}>{x.short}</Text>}
-          <Box flexGrow={1} />
-          {wide && x.qty && <Text color={AG.dim}>{x.qty}</Text>}
-          <Box width={7} justifyContent="flex-end">
-            <Text bold>{`${(x.share * 100).toFixed(1)}%`}</Text>
+      {parts.map(x => {
+        const first = (
+          <Box key={`${key}-l-${x.label}`} flexDirection="row" columnGap={1}>
+            <Text color={x.color}>●</Text>
+            <Text wrap="truncate-end">{x.label}</Text>
+            {x.mint && copyMint($, e, `${key}-cp-${x.label}`, x.mint)}
+            {!x.pnl && !wide && x.short && <Text color={AG.dim}>{x.short}</Text>}
+            <Box flexGrow={1} />
+            {!x.pnl && wide && x.qty && <Text color={AG.dim}>{x.qty}</Text>}
+            <Box width={7} justifyContent="flex-end">
+              <Text bold>{`${(x.share * 100).toFixed(1)}%`}</Text>
+            </Box>
+            <Box width={11} justifyContent="flex-end">
+              <Text color={AG.dim}>{usd(x.value)}</Text>
+            </Box>
           </Box>
-          <Box width={11} justifyContent="flex-end">
-            <Text color={AG.dim}>{usd(x.value)}</Text>
+        )
+        if (!two || !x.pnl) return first
+        return (
+          <Box key={`${key}-r-${x.label}`} flexDirection="column">
+            {first}
+            <Box key={`${key}-p-${x.label}`} flexDirection="row" columnGap={1} paddingLeft={2}>
+              <Text color={AG.dim} wrap="truncate-end">
+                {(wide ? x.qty : x.short) ?? ''}
+              </Text>
+              <Box flexGrow={1} />
+              {pnlText(x.pnl)}
+            </Box>
           </Box>
-        </Box>
-      ))}
+        )
+      })}
     </Box>
   )
 }
@@ -5044,7 +5070,8 @@ function readBook(j: Record<string, unknown>): PaperBook | string {
   const holdings: PaperHolding[] = []
   for (const h of j.holdings) {
     if (!isObj(h) || !str(h.mint) || !digits(h.amount)) return 'a holding with no mint or amount'
-    holdings.push({ mint: str(h.mint)!, amount: digits(h.amount)!, valueUsdc: str(h.valueUsdc), ...(str(h.why) ? { why: printable(str(h.why)!, 200) } : {}) })
+    const cost = str(h.costUsdc) ? { costUsdc: str(h.costUsdc)!, pnlUsdc: str(h.pnlUsdc), pnlPct: num(h.pnlPct) } : str(h.costWhy) ? { costWhy: printable(str(h.costWhy)!, 200) } : null
+    holdings.push({ mint: str(h.mint)!, amount: digits(h.amount)!, valueUsdc: str(h.valueUsdc), ...(str(h.why) ? { why: printable(str(h.why)!, 200) } : {}), ...(cost ? { cost } : {}) })
   }
   const fills = Array.isArray(j.fills) ? j.fills.map(fillOf).filter((f): f is PaperFill => f !== null) : []
   return {
@@ -5053,6 +5080,7 @@ function readBook(j: Record<string, unknown>): PaperBook | string {
     valueUsdc: str(j.valueUsdc)!,
     pnlUsdc: str(j.pnlUsdc)!,
     pnlPct: num(j.pnlPct)!,
+    depositedUsdc: str(j.depositedUsdc) ?? '0',
     unpriced: num(j.unpriced) ?? 0,
     priceSource: printable(str(j.priceSource) ?? 'not named by the server', 160),
     pricedAt: str(j.pricedAt) ?? '',
@@ -5202,12 +5230,15 @@ async function probePaper($: Dollar) {
 // The paper value as Agon read it, one point per read at the server's pricedAt, kept across sessions
 // for 1 account: every read of the last 24 h, then 1 per 15 min back to 30 days, about 4,300 points
 // and 120 KB at most. The server keeps no history, so this is the only record of it.
-type PaperHistory = { account: string; points: [number, number][] }
+// Each point is [time, value] or, since deposits were recorded with it, [time, value, deposited]: P&L at
+// a point is its value less the start and what was deposited by then, so a deposit is never a gain.
+type PaperHistory = { account: string; points: ([number, number] | [number, number, number])[] }
 const DAY = 864e5
 async function notePaperValue($: Dollar, b: PaperBook) {
   const t = Date.parse(b.pricedAt)
   const v = Number(b.valueUsdc)
-  if (!Number.isFinite(t) || !Number.isFinite(v)) return
+  const d = Number(b.depositedUsdc)
+  if (!Number.isFinite(t) || !Number.isFinite(v) || !Number.isFinite(d)) return
   const prev = (await $.store.get('paperHistory')) as PaperHistory | undefined
   const seen = new Set<number>()
   const kept = (prev?.account === b.account ? prev.points : []).filter(([at]) => {
@@ -5216,7 +5247,7 @@ async function notePaperValue($: Dollar, b: PaperBook) {
     const slot = Math.floor(at / 9e5)
     return seen.has(slot) ? false : (seen.add(slot), true)
   })
-  await $.store.set('paperHistory', { account: b.account, points: [...kept, [t, v]] })
+  await $.store.set('paperHistory', { account: b.account, points: [...kept, [t, v, d]] })
 }
 
 // The Paper side's charts, as an exchange's portfolio page has them: the balance (or P&L against the
@@ -5230,14 +5261,28 @@ const PORT_SPANS = [
   { label: 'All', ms: Infinity },
 ]
 const spanWords = (ms: number) => (ms < 36e5 ? `${Math.max(1, Math.round(ms / 6e4))} min` : ms < DAY ? `${Math.round(ms / 36e5)} h` : `${Math.round(ms / DAY)} d`)
-// The paper value's points, oldest first: every value Agon read, and, with every fill in view, the
-// starting USDC at the first fill, which is exactly what the account held before it.
+// The paper account's points, oldest first, from every value Agon read. `pts` is the value; `pnl` and
+// `pct` are P&L in USDC and against the start plus deposits, from the reads that recorded deposits.
+// With every fill in view the first fill is added: before it the account held exactly its start and
+// deposits, so its P&L there is 0, and its value is the start when nothing was ever deposited.
 async function paperPoints($: Dollar, b: PaperBook) {
   const hist = (await $.store.get('paperHistory')) as PaperHistory | undefined
   const read = hist?.account === b.account ? hist.points : []
+  const start = Number(b.startedWithUsdc)
   const firstFill = b.fillCount > 0 && b.fillCount === b.fills.length ? Math.min(...b.fills.map(f => Date.parse(f.at))) : NaN
-  const pts: [number, number][] = Number.isFinite(firstFill) && (read.length === 0 || firstFill < read[0]![0]) ? [[firstFill, Number(b.startedWithUsdc)], ...read] : read
-  return { read, pts }
+  const before = (p: [number, number][]) => (Number.isFinite(firstFill) && (p.length === 0 || firstFill < p[0]![0]) ? firstFill : NaN)
+  const vals = read.map(([t, v]) => [t, v] as [number, number])
+  const lead = before(vals)
+  const pts: [number, number][] = Number.isFinite(lead) && Number(b.depositedUsdc) === 0 ? [[lead, start], ...vals] : vals
+  const known = read.filter((x): x is [number, number, number] => x.length === 3)
+  const pnlOnly = known.map(([t, v, d]) => [t, v - start - d] as [number, number])
+  const pctOnly = known.map(([t, v, d]) => [t, start + d > 0 ? ((v - start - d) / (start + d)) * 100 : 0] as [number, number])
+  const zero = before(pnlOnly)
+  const pnl: [number, number][] = Number.isFinite(zero) ? [[zero, 0], ...pnlOnly] : pnlOnly
+  const pct: [number, number][] = Number.isFinite(zero) ? [[zero, 0], ...pctOnly] : pctOnly
+  // The deposited total over time, to say how much of a balance change in a span was deposits.
+  const deps: [number, number][] = known.map(([t, , d]) => [t, d])
+  return { read, pts, pnl, pct, deps }
 }
 // A figure drawn large, as an exchange's dashboard shows a balance: an SVG on the desktop, where a
 // Text has no size of its own.
@@ -5254,13 +5299,17 @@ async function paperCharts($: Dollar, e: Site, b: PaperBook, width: number, allo
   const { Box, Text } = els
   const svg = e.surface !== 'terminal'
   const start = Number(b.startedWithUsdc)
-  const { read, pts } = await paperPoints($, b)
+  const deposited = Number(b.depositedUsdc)
+  const { read, pts: valuePts, pnl, pct } = await paperPoints($, b)
   const out: JSX.Element[] = []
   const inner = sectionInner(width)
 
   const spanAt = Math.min(PORT_SPANS.length - 1, Math.max(0, (await $.state.get(PORT_SPAN)).value ?? 2))
   const kind = (await $.state.get(PORT_KIND)).value ?? 'value'
   const span = PORT_SPANS[spanAt]!
+  // The line is the balance, or P&L % against the start plus deposits; the span's change is always
+  // P&L, so a deposit never reads as a gain.
+  const pts = kind === 'pnl' ? pct : valuePts
   const to = pts.length ? pts.at(-1)![0] : 0
   const from = pts.length ? Math.max(pts[0]![0], to - span.ms) : 0
   const enough = pts.length > 1 && to > from
@@ -5325,7 +5374,9 @@ async function paperCharts($: Dollar, e: Site, b: PaperBook, width: number, allo
   if (!enough) {
     card.push(
       <Text key="pv-wait" color={AG.dim} wrap="wrap">
-        {`The chart draws once Agon has 2 values: it reads this account about once a minute while Claude Code is open, ${read.length} ${read.length === 1 ? 'read' : 'reads'} so far.`}
+        {kind === 'pnl' && valuePts.length > 1
+          ? 'P&L % draws from reads that recorded deposits, which start with this version: about a minute while a pane is open.'
+          : `The chart draws once Agon has 2 values: it reads this account about once a minute while Claude Code is open, ${read.length} ${read.length === 1 ? 'read' : 'reads'} so far.`}
       </Text>,
     )
     out.push(section($, e, 'pv-card', width, card))
@@ -5334,23 +5385,31 @@ async function paperCharts($: Dollar, e: Site, b: PaperBook, width: number, allo
   const n = 60
   const times = Array.from({ length: n }, (_, k) => from + (k * (to - from)) / (n - 1))
   const values = times.map(t => atTime(pts, t))
-  const series = kind === 'pnl' ? values.map(v => (start > 0 ? (v / start - 1) * 100 : 0)) : values
+  const series = values
   const fmt = kind === 'pnl' ? (v: number) => pctSigned(v, 2) : usd
-  const change = values.at(-1)! - values[0]!
-  const changePct = values[0]! > 0 ? (change / values[0]!) * 100 : 0
-  const up = kind === 'pnl' ? series.at(-1)! >= 0 : change >= 0
+  // P&L over the span, from the reads that recorded deposits; it starts where they do, and says so.
+  const pFrom = pnl.length ? Math.max(from, pnl[0]![0]) : to
+  const change = pnl.length && to > pFrom ? atTime(pnl, to) - atTime(pnl, pFrom) : null
+  const changePct = change !== null && start + deposited > 0 ? (change / (start + deposited)) * 100 : 0
+  const up = kind === 'pnl' ? series.at(-1)! >= 0 : (change ?? 0) >= 0
   const timeOf = (t: number) => candleTime(t, to - from <= DAY ? 1 : 2)
   const axis: Axis = { fmt, from: timeOf(from), to: timeOf(to) }
   card.push(
-    <Box key="pv-delta" flexDirection="row" columnGap={2} flexWrap="wrap">
-      <Text color={AG.dim}>{`${to - from >= span.ms ? span.label : spanWords(to - from)} change`}</Text>
-      <Text bold color={tone(change)}>{`${signed(change)} (${pctSigned(changePct, 2)})`}</Text>
-    </Box>,
+    change === null ? (
+      <Text key="pv-delta" color={AG.dim} wrap="wrap">
+        P&L for this span shows from Agon's next read of the account.
+      </Text>
+    ) : (
+      <Box key="pv-delta" flexDirection="row" columnGap={2} flexWrap="wrap">
+        <Text color={AG.dim}>{`${to - pFrom >= span.ms ? span.label : spanWords(to - pFrom)} P&L`}</Text>
+        <Text bold color={tone(change)}>{`${signed(change)} (${pctSigned(changePct, 2)})`}</Text>
+      </Box>
+    ),
   )
   card.push(
     svg ? (
       <Box key="pv-chart">
-        <els.Svg key="pv-chart-svg" isInteractive source={chartSvg(series, svgPx(inner), 150, up, kind === 'pnl' ? 0 : 0.5, axis, { prices: series.map(fmt), times: times.map(timeOf) })} alt={`paper ${kind === 'pnl' ? 'P&L against the start' : 'balance'} from ${axis.from} to ${axis.to}, ${fmt(series[0]!)} to ${fmt(series.at(-1)!)}`} width={svgPx(inner)} height={150} />
+        <els.Svg key="pv-chart-svg" isInteractive source={chartSvg(series, svgPx(inner), 150, up, kind === 'pnl' ? 0 : 0.5, axis, { prices: series.map(fmt), times: times.map(timeOf) })} alt={`paper ${kind === 'pnl' ? 'P&L against the start plus deposits' : 'balance'} from ${axis.from} to ${axis.to}, ${fmt(series[0]!)} to ${fmt(series.at(-1)!)}`} width={svgPx(inner)} height={150} />
       </Box>
     ) : (
       <Box key="pv-chart" flexDirection="column">
@@ -5365,7 +5424,7 @@ async function paperCharts($: Dollar, e: Site, b: PaperBook, width: number, allo
   )
   card.push(
     <Text key="pv-src" color={AG.dim} dimColor wrap="wrap">
-      {`Paper value as Agon read it, ${read.length} ${read.length === 1 ? 'read' : 'reads'}${pts.length > read.length ? ` and the ${grouped(b.startedWithUsdc)} USDC start before the first fill` : ''}`}
+      {`${kind === 'pnl' ? 'P&L against the start plus deposits' : 'Paper value'} as Agon read it, ${read.length} ${read.length === 1 ? 'read' : 'reads'}${pts.length > read.length ? ' and the account before its first fill' : ''}.${kind !== 'pnl' && deposited > 0 ? ` The balance includes ${grouped(b.depositedUsdc)} USDC you deposited; P&L leaves it out.` : ''}`}
     </Text>,
   )
   out.push(section($, e, 'pv-card', width, card))
@@ -5774,8 +5833,9 @@ async function paperAccount($: Dollar, e: Site) {
   if (b) {
     // The balance, large and in the colour of the P&L, as an exchange's dashboard shows it; beside it
     // a sparkline of the values Agon read, where there are 2.
+    // The balance in plain ink: a 0.25% dip must not paint the whole figure red. P&L carries the colour.
     const pnl = Number(b.pnlUsdc)
-    const col = pnl >= 0.005 ? AG.up : pnl <= -0.005 ? AG.down : AG.fg
+    const col = AG.fg
     const value = usd(Number(b.valueUsdc))
     const big = bigNumSvg(value, col)
     const { pts } = await paperPoints($, b)
@@ -5798,7 +5858,7 @@ async function paperAccount($: Dollar, e: Site) {
           <Box flexGrow={1} />
           {line &&
             (e.surface === 'terminal' ? (
-              <Text key="pa-spark" color={col}>
+              <Text key="pa-spark" color={tone(pnl) ?? AG.dim}>
                 {braille(line, 16, 1)[0]}
               </Text>
             ) : (
@@ -5824,6 +5884,15 @@ async function paperAccount($: Dollar, e: Site) {
         value: Number(h.valueUsdc),
         mint: h.mint,
         ...(dec == null ? {} : { qty: wholeOf(h.amount, dec), short: qty(Number(h.amount) / 10 ** dec) }),
+        ...(h.mint === USDC_MINT
+          ? { pnl: { cash: true as const } }
+          : !h.cost
+            ? {}
+            : 'costWhy' in h.cost
+              ? { pnl: { why: h.cost.costWhy } }
+              : h.cost.pnlUsdc != null
+                ? { pnl: { usd: Number(h.cost.pnlUsdc), pct: h.cost.pnlPct } }
+                : {}),
       })
     }
     rows.push(...(await paperCharts($, e, b, width, priced)))

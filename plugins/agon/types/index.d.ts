@@ -113,13 +113,18 @@ export type PaperLast = { ok: boolean; text: string; reasons: PaperReason[]; sta
 // The server's paper ledger, as paper_portfolio returns it. Amounts are base units as digit strings;
 // USDC values are decimal strings, `valueUsdc` null when no quote priced that holding.
 export type PaperFill = { at: string; side: 'buy' | 'sell'; inputMint: string; outputMint: string; inAmount: string; outAmount: string; quoteSlot: number | null }
-export type PaperHolding = { mint: string; amount: string; valueUsdc: string | null; why?: string }
+// `cost` (T-C58): what the holding cost in USDC and its P&L against that, or why no cost is recorded.
+// Absent on USDC and on a server from before costs were kept.
+export type PaperCost = { costUsdc: string; pnlUsdc: string | null; pnlPct: number | null } | { costWhy: string }
+export type PaperHolding = { mint: string; amount: string; valueUsdc: string | null; why?: string; cost?: PaperCost }
 export type PaperBook = {
   account: string
   startedWithUsdc: string
   valueUsdc: string
   pnlUsdc: string
   pnlPct: number
+  /** USDC added by paper_deposit, so a deposit is never read as a gain. */
+  depositedUsdc: string
   unpriced: number
   priceSource: string
   pricedAt: string

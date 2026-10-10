@@ -9,7 +9,7 @@
       "name": "agon",
       "source": "./plugins/agon",
       "description": "Your agent's spending limit above the prompt, a live Solana token pane, and guard checks before any trade",
-      "version": "0.2.1",
+      "version": "0.2.2",
       "author": { "name": "Agon" }
     }
   ]
