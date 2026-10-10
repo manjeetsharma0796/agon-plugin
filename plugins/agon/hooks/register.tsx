@@ -2113,6 +2113,17 @@ export const register: Register = on => {
     return { result: opened.isPlaced ? `Opened Agon on ${nav.label}.` : `Agon is set to ${nav.label}, but no side pane could be placed here (${opened.reason}).` }
   })
 
+  // Claude's own paper_trade calls go on the saved wallet, the 1 account this dashboard reads. The model
+  // never picks it: a model-chosen address was a second paper ledger nobody could see (2026-10-10).
+  // Both names, for the server this plugin ships and for one added by hand as "agon".
+  for (const tool of ['mcp__plugin_agon_agon__paper_trade', 'mcp__agon__paper_trade', 'mcp__plugin_agon_agon__paper_portfolio', 'mcp__agon__paper_portfolio']) {
+    on('tool.call', { tool }, async ($, e, next) => {
+      const account = await paperAccountOf($)
+      if (!account) return { deny: 'No wallet is saved in Agon yet, so there is no paper account to use. Save the public address with /agon-wallet <address>, then ask again.' }
+      return next({ ...(e as unknown as Record<string, unknown>), account } as unknown as typeof e)
+    })
+  }
+
   // The agent's discover tool: the same state the Discover controls set, checked here, then the top of
   // the list the view shows, filtered and sorted the same way. Token text never goes back.
   const DISCOVER_SORTS = ['volume', '24h', '1h', 'mc', 'liquidity', 'holders', 'organic']
@@ -2390,8 +2401,8 @@ async function tickOnce($: Dollar) {
     sent++
     const args: PaperTradeArgs =
       d.side === 'buy'
-        ? { account, side: 'buy', inputMint: USDC_MINT, outputMint: b.mint, amount: d.amount.toString() }
-        : { account, side: 'sell', inputMint: b.mint, outputMint: USDC_MINT, amount: d.amount.toString() }
+        ? { account, side: 'buy', symbol: b.symbol, inputMint: USDC_MINT, outputMint: b.mint, amount: d.amount.toString() }
+        : { account, side: 'sell', symbol: b.symbol, inputMint: b.mint, outputMint: USDC_MINT, amount: d.amount.toString() }
     const a = await paperServer($, { op: 'trade', args })
     const after = await $.clock.now()
     if (!a.ok) {
@@ -4968,7 +4979,10 @@ async function mcpRpc($: Dollar, method: string, params: Record<string, unknown>
 // order) comes back as isError with the server's sentence. Paper trades never reach the chain.
 const PAPER_TRADE_TOOL = 'paper_trade'
 const PAPER_PORTFOLIO_TOOL = 'paper_portfolio'
-type PaperTradeArgs = { account: string; side: 'buy' | 'sell'; inputMint: string; outputMint: string; amount: string }
+type PaperTradeArgs = { account: string; side: 'buy' | 'sell'; symbol: string; inputMint: string; outputMint: string; amount: string }
+// The server (agon-dev T-C54) checks the mint against `symbol` and refuses a mismatch, so the symbol
+// sent is the token's own, never a label. It takes 1 to 20 letters, digits, dot, dash or underscore.
+const SYMBOL_OK = /^\$?[A-Za-z0-9._-]{1,20}$/
 type PaperVerdict = { verdict: string; reasons: PaperReason[]; dataSlot: number | null; ruleVersion: string }
 type PaperTraded = { filled: boolean; verdict: PaperVerdict; fill: PaperFill | null; message: string | null; note: string | null }
 type Answer<T> = { ok: true; value: T } | { ok: false; reason: string }
@@ -5356,11 +5370,13 @@ async function paperOrder($: Dollar, order: PaperOrder) {
 async function paperArgs($: Dollar, order: PaperOrder, account: string): Promise<Answer<PaperTradeArgs>> {
   const name = mintLabel(order.mint, order.symbol)
   if (order.mint === USDC_MINT) return { ok: false, reason: 'USDC is what paper buys spend and paper sells receive, so it cannot be paper traded itself; pick another token' }
+  const symbol = order.symbol ?? ''
+  if (!SYMBOL_OK.test(symbol)) return { ok: false, reason: `the server checks a paper trade by the token's symbol, and ${name}'s listed symbol has characters it does not take; trade it from the chat with its mint` }
   if (order.side === 'buy') {
     const usdc = order.usdc ?? 0
     const units = Number.isFinite(usdc) ? BigInt(Math.round(usdc * 1e6)) : 0n
     if (units <= 0n) return { ok: false, reason: `the paper buy amount is ${usdc} USDC; enter an amount above 0` }
-    return { ok: true, value: { account, side: 'buy', inputMint: USDC_MINT, outputMint: order.mint, amount: String(units) } }
+    return { ok: true, value: { account, side: 'buy', symbol, inputMint: USDC_MINT, outputMint: order.mint, amount: String(units) } }
   }
   if ((await readPaper($)).portfolio?.account !== account) await readPaperPortfolio($)
   const p = await readPaper($)
@@ -5370,7 +5386,7 @@ async function paperArgs($: Dollar, order: PaperOrder, account: string): Promise
   const amount = exact != null ? (exact > held ? held : exact) : (held * BigInt(order.pct ?? 0)) / 100n
   if (held === 0n) return { ok: false, reason: `your paper account holds 0 ${name}, so there is nothing to sell; paper buy it first` }
   if (amount === 0n) return { ok: false, reason: `${order.pct}% of the ${held} base units of ${name} your paper account holds rounds to 0; pick a larger percent` }
-  return { ok: true, value: { account, side: 'sell', inputMint: order.mint, outputMint: USDC_MINT, amount: amount.toString() } }
+  return { ok: true, value: { account, side: 'sell', symbol, inputMint: order.mint, outputMint: USDC_MINT, amount: amount.toString() } }
 }
 
 async function sendPaper($: Dollar, order: PaperOrder) {

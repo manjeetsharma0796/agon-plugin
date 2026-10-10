@@ -954,7 +954,7 @@ test('a paper buy goes to paper_trade with the saved address as the account and 
   let bought = false
   const srv = paperServer(on, SOL_TOK, c => {
     if (c.name === 'paper_portfolio') return c.arguments.account === PF.PAPER_ACCOUNT ? (bought ? PF.PORTFOLIO_AFTER_BUY : PF.PORTFOLIO_NEW) : null
-    const want = { account: PF.PAPER_ACCOUNT, side: 'buy', inputMint: USDC, outputMint: WSOL, amount: '10000000' }
+    const want = { account: PF.PAPER_ACCOUNT, side: 'buy', symbol: 'SOL', inputMint: USDC, outputMint: WSOL, amount: '10000000' }
     if (JSON.stringify(c.arguments) !== JSON.stringify(want)) return null
     bought = true
     return PF.BUY_FILLED
@@ -983,7 +983,7 @@ test('a paper buy goes to paper_trade with the saved address as the account and 
   expect(trades(srv.calls).length).toBe(0)
   await trade.press({ key: 'signup-continue' })
   expect(store.get('signupSeen')).toBe(true)
-  expect(trades(srv.calls)).toEqual([{ account: PF.PAPER_ACCOUNT, side: 'buy', inputMint: USDC, outputMint: WSOL, amount: '10000000' }])
+  expect(trades(srv.calls)).toEqual([{ account: PF.PAPER_ACCOUNT, side: 'buy', symbol: 'SOL', inputMint: USDC, outputMint: WSOL, amount: '10000000' }])
   await trade.unmount()
 
   for (const surface of ['terminal', 'desktop'] as const) {
@@ -996,13 +996,34 @@ test('a paper buy goes to paper_trade with the saved address as the account and 
   }
 })
 
+test("Claude's own paper_trade goes on the saved wallet whatever account it names, and with no wallet saved it is refused", async ($, on) => {
+  on('command.register', async (_$, e) => ({ value: { command: e.name } }))
+  const store = keep(on, { wallet: PF.PAPER_ACCOUNT })
+  const seen: Record<string, unknown>[] = []
+  // The MCP server beneath the plugin: it only records what reached it.
+  on('tool.call', { tool: 'mcp__plugin_agon_agon__paper_trade' }, async (_$, e) => {
+    seen.push(e as unknown as Record<string, unknown>)
+    return { result: 'recorded' }
+  })
+  await open($, 'desktop')
+  const invented = 'DNDYmqxubRKmMtnq88AW4aUHreu88XrrGijAKpUojw1A'
+  await $.tool.call({ tool: 'mcp__plugin_agon_agon__paper_trade', account: invented, side: 'buy', symbol: 'TRUMP', amount: '10000000' } as never)
+  expect(seen.map(s => s.account)).toEqual([PF.PAPER_ACCOUNT])
+  expect(seen[0]?.symbol).toBe('TRUMP')
+
+  store.delete('wallet')
+  const refused = await $.tool.call({ tool: 'mcp__plugin_agon_agon__paper_trade', account: invented, side: 'buy', symbol: 'TRUMP', amount: '10000000' } as never)
+  expect(JSON.stringify(refused)).toMatch(/No wallet is saved in Agon yet/)
+  expect(seen).toHaveLength(1)
+})
+
 test('a paper trade check_trade refuses shows each reason with its number and limit, and no address means no call', async ($, on) => {
   on('command.register', async (_$, e) => ({ value: { command: e.name } }))
   on('ui.open', async () => ({ value: { isPlaced: true } }))
   const store = keep(on, { signupSeen: true })
   const srv = paperServer(on, THIN_TOK, c => {
     if (c.name === 'paper_portfolio') return PF.PORTFOLIO_NEW
-    const want = { account: PF.PAPER_ACCOUNT, side: 'buy', inputMint: USDC, outputMint: THIN, amount: '500000000' }
+    const want = { account: PF.PAPER_ACCOUNT, side: 'buy', symbol: 'THIN', inputMint: USDC, outputMint: THIN, amount: '500000000' }
     return JSON.stringify(c.arguments) === JSON.stringify(want) ? PF.BUY_REFUSED : null
   })
   srv.paperMode()
@@ -1028,7 +1049,7 @@ test('a paper trade check_trade refuses shows each reason with its number and li
   // Any amount: typed, not picked from a list.
   await trade.input({ key: 'paper-amt-in', text: '500', kind: 'change' })
   await trade.press({ key: 'paper-buy' })
-  expect(trades(srv.calls)).toEqual([{ account: PF.PAPER_ACCOUNT, side: 'buy', inputMint: USDC, outputMint: THIN, amount: '500000000' }])
+  expect(trades(srv.calls)).toEqual([{ account: PF.PAPER_ACCOUNT, side: 'buy', symbol: 'THIN', inputMint: USDC, outputMint: THIN, amount: '500000000' }])
   await trade.unmount()
 
   for (const surface of ['terminal', 'desktop'] as const) {
@@ -1049,7 +1070,7 @@ test('the paper portfolio shows value, P&L, holdings and fills from paper_portfo
   keep(on, { wallet: PF.PAPER_ACCOUNT, signupSeen: true })
   const srv = paperServer(on, SOL_TOK, c => {
     if (c.name === 'paper_portfolio') return PF.PORTFOLIO_AFTER_BUY
-    const want = { account: PF.PAPER_ACCOUNT, side: 'sell', inputMint: WSOL, outputMint: USDC, amount: '45776431' }
+    const want = { account: PF.PAPER_ACCOUNT, side: 'sell', symbol: 'SOL', inputMint: WSOL, outputMint: USDC, amount: '45776431' }
     return JSON.stringify(c.arguments) === JSON.stringify(want) ? PF.SELL_FILLED : null
   })
   srv.paperMode()
@@ -1117,7 +1138,7 @@ test('the paper portfolio shows value, P&L, holdings and fills from paper_portfo
   expect(await trade.find({ type: 'Text', text: /^Max sell$/ })).toBeDefined()
   await trade.press({ key: 'paper-pct-50' })
   await trade.press({ key: 'paper-sell' })
-  expect(trades(srv.calls)).toEqual([{ account: PF.PAPER_ACCOUNT, side: 'sell', inputMint: WSOL, outputMint: USDC, amount: '45776431' }])
+  expect(trades(srv.calls)).toEqual([{ account: PF.PAPER_ACCOUNT, side: 'sell', symbol: 'SOL', inputMint: WSOL, outputMint: USDC, amount: '45776431' }])
   expect(await trade.find({ type: 'Text', text: /^Paper sell filled: 0\.045776431 SOL for 4\.999996 USDC, at a live Jupiter quote\. Nothing reached the chain\.$/ })).toBeDefined()
   expect(await trade.find({ type: 'Text', text: /^Data slot 454699568, rule version / })).toBeDefined()
   // An amount that is not a number says so in words, and presses send nothing.
