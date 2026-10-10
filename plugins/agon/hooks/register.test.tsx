@@ -1161,7 +1161,7 @@ test('the paper portfolio shows value, P&L, holdings and fills from paper_portfo
     // Binance-style cards on both surfaces: the balance from the first fill's 1,000 USDC start to each
     // value read, and the allocation with each share in the legend.
     expect(await port.find({ key: 'pv-chart' })).toBeDefined()
-    expect(await port.find({ type: 'Text', text: /^Paper value as Agon read it, 1 read and the 1,000 USDC start before the first fill$/ })).toBeDefined()
+    expect(await port.find({ type: 'Text', text: /^Paper value as Agon read it, 1 read and the account before its first fill\.$/ })).toBeDefined()
     expect(await port.find({ type: 'Text', text: /^Allocation$/ })).toBeDefined()
     expect(await port.find({ type: 'Text', text: /^99\.0%$/ })).toBeDefined()
     expect(await port.find({ type: 'Text', text: /^1\.0%$/ })).toBeDefined()
@@ -1348,4 +1348,65 @@ test('a paper change made outside the plugin is read at once when the server say
   await clock.advance(1_000)
   expect(log.filter(l => l === 'changes').length).toBe(3)
   await pane.unmount()
+})
+
+// The paper book the server answers, changed by `edit`: the SSE line holds the JSON-RPC body, whose
+// text is the book's JSON.
+const editBook = (sse: string, edit: (b: Record<string, any>) => void) => {
+  const line = sse.split('\n').find(l => l.startsWith('data: '))!
+  const rpc = JSON.parse(line.slice(6))
+  const book = JSON.parse(rpc.result.content[0].text)
+  edit(book)
+  rpc.result.content[0].text = JSON.stringify(book)
+  return sse.replace(line, `data: ${JSON.stringify(rpc)}`)
+}
+
+test('each paper holding shows its P&L against cost under its value, deposits are never a gain, and the balance is not painted by P&L', async ($, on) => {
+  on('command.register', async (_$, e) => ({ value: { command: e.name } }))
+  on('ui.open', async () => ({ value: { isPlaced: true } }))
+  const book = editBook(PF.PORTFOLIO_AFTER_BUY, b => {
+    b.valueUsdc = '1556'
+    b.pnlUsdc = '-4'
+    b.pnlPct = -0.26
+    b.depositedUsdc = '560'
+    for (const h of b.holdings) if (h.mint === WSOL) Object.assign(h, { costUsdc: '10', pnlUsdc: '-0.4', pnlPct: -4 })
+  })
+  const at = Date.parse(JSON.parse(JSON.parse(book.split('\n').find(l => l.startsWith('data: '))!.slice(6)).result.content[0].text).pricedAt)
+  // 2 earlier reads with deposits recorded: P&L 0 at the first, then -4 now, while 60 USDC came in.
+  keep(on, { wallet: PF.PAPER_ACCOUNT, signupSeen: true, paperHistory: { account: PF.PAPER_ACCOUNT, points: [[at - 12e5, 1500, 500], [at - 6e5, 1550, 560]] } })
+  const srv = paperServer(on, SOL_TOK, c => (c.name === 'paper_portfolio' ? book : null))
+  srv.paperMode()
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const port = await open($, surface, 100, 'portfolio')
+    await port.press({ key: 'paper-acct-refresh' })
+    // The holding: its P&L in dollars and percent, signed, under its value; USDC is cash.
+    expect(await port.find({ type: 'Text', text: /^-\$0\.40 \(-4\.0%\)$/ })).toBeDefined()
+    expect(await port.find({ type: 'Text', text: /^cash$/ })).toBeDefined()
+    // The span's change is P&L, -4, not the 56 the balance rose by with 60 deposited.
+    expect(await port.find({ type: 'Text', text: /^20 min P&L$/ })).toBeDefined()
+    expect(await port.find({ type: 'Text', text: /^-\$4\.00 \(-0\.26%\)$/ })).toBeDefined()
+    expect(await port.find({ type: 'Text', text: /The balance includes 560 USDC you deposited; P&L leaves it out\.$/ })).toBeDefined()
+    if (surface === 'desktop') {
+      const svgIn = (n: any): any => (n?.type === 'Svg' ? n : (n?.children ?? []).map(svgIn).find(Boolean))
+      const big = svgIn(await port.find({ key: 'pa-big' }))
+      expect(String(big.props.source)).toContain('fill="#ffffff"')
+    }
+    await port.unmount()
+  }
+})
+
+test('a paper holding with no recorded cost says so in place of its P&L', async ($, on) => {
+  on('command.register', async (_$, e) => ({ value: { command: e.name } }))
+  on('ui.open', async () => ({ value: { isPlaced: true } }))
+  const book = editBook(PF.PORTFOLIO_AFTER_BUY, b => {
+    for (const h of b.holdings) if (h.mint === WSOL) Object.assign(h, { costUsdc: null, pnlUsdc: null, pnlPct: null, costWhy: 'no cost recorded: bought before Agon kept costs' })
+  })
+  keep(on, { wallet: PF.PAPER_ACCOUNT, signupSeen: true })
+  const srv = paperServer(on, SOL_TOK, c => (c.name === 'paper_portfolio' ? book : null))
+  srv.paperMode()
+  const port = await open($, 'desktop', 100, 'portfolio')
+  await port.press({ key: 'paper-acct-refresh' })
+  expect(await port.find({ type: 'Text', text: /^cost not recorded$/ })).toBeDefined()
+  expect(await port.find({ type: 'Text', text: /^0\.091552862$/ })).toBeDefined()
+  await port.unmount()
 })
