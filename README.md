@@ -160,6 +160,18 @@ claude plugin update agon@agon
 
 Then start Claude Code again, or type `/reload-plugins` in an open session.
 
+If it says `agon is already at the latest version` but you know there is a newer release, reinstall:
+
+```bash
+claude plugin uninstall agon@agon
+```
+
+```bash
+claude plugin install agon@agon
+```
+
+Then type `/reload-plugins`. If Agon asks for your wallet again, save it with `/agon-wallet <your public address>`.
+
 ## Troubleshooting
 
 | What you see | What to do |
