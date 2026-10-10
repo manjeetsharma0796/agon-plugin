@@ -1017,6 +1017,31 @@ test("Claude's own paper_trade goes on the saved wallet whatever account it name
   expect(seen).toHaveLength(1)
 })
 
+test("a fill Claude makes refreshes the paper portfolio and says so in a toast; a refusal does neither", async ($, on) => {
+  on('command.register', async (_$, e) => ({ value: { command: e.name } }))
+  keep(on, { wallet: PF.PAPER_ACCOUNT })
+  const toasts: string[] = []
+  on('ui.toast', async (_$, e) => {
+    toasts.push(String((e as { text?: unknown }).text))
+    return { value: undefined }
+  })
+  const srv = paperServer(on, SOL_TOK, c => (c.name === 'paper_portfolio' ? PF.PORTFOLIO_AFTER_BUY : null))
+  let answer: Record<string, unknown> = { filled: true, fill: { side: 'buy', symbol: 'TRUMP' } }
+  on('tool.call', { tool: 'mcp__plugin_agon_agon__paper_trade' }, async () => ({ result: { content: [{ type: 'text', text: JSON.stringify(answer) }] } }))
+  await open($, 'desktop')
+  const reads = () => srv.calls.filter(c => c.name === 'paper_portfolio').length
+  const before = reads()
+  await $.tool.call({ tool: 'mcp__plugin_agon_agon__paper_trade', side: 'buy', symbol: 'TRUMP', amount: '1' } as never)
+  expect(reads()).toBe(before + 1)
+  expect(toasts.at(-1)).toMatch(/Paper buy filled · TRUMP\. Portfolio updated\./)
+
+  answer = { filled: false }
+  const n = toasts.length
+  await $.tool.call({ tool: 'mcp__plugin_agon_agon__paper_trade', side: 'buy', symbol: 'TRUMP', amount: '2' } as never)
+  expect(reads()).toBe(before + 1)
+  expect(toasts.length).toBe(n)
+})
+
 test('a paper trade check_trade refuses shows each reason with its number and limit, and no address means no call', async ($, on) => {
   on('command.register', async (_$, e) => ({ value: { command: e.name } }))
   on('ui.open', async () => ({ value: { isPlaced: true } }))

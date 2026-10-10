@@ -2120,7 +2120,17 @@ export const register: Register = on => {
     on('tool.call', { tool }, async ($, e, next) => {
       const account = await paperAccountOf($)
       if (!account) return { deny: 'No wallet is saved in Agon yet, so there is no paper account to use. Save the public address with /agon-wallet <address>, then ask again.' }
-      return next({ ...(e as unknown as Record<string, unknown>), account } as unknown as typeof e)
+      const out = await next({ ...(e as unknown as Record<string, unknown>), account } as unknown as typeof e)
+      // A fill Claude made changes the ledger the dashboard shows, so it is read again at once, and
+      // said in a toast: the person sees the trade land without opening the pane.
+      if (tool.endsWith('paper_trade')) {
+        const fill = paperFillOf(out)
+        if (fill) {
+          await readPaperPortfolio($)
+          $.ui.toast(`Paper ${fill.side} filled${fill.symbol ? ` · ${fill.symbol}` : ''}. Portfolio updated.`, { timeoutMs: 6000 })
+        }
+      }
+      return out
     })
   }
 
@@ -5094,6 +5104,25 @@ async function readPaper($: Dollar): Promise<Paper> {
   const v = (await $.state.get(PAPER)).value ?? null
   return v && typeof v.last !== 'string' && typeof v.portfolio !== 'string' ? { ...PAPER0, ...v } : PAPER0
 }
+/**
+ * The fill in a paper_trade answer, or null: the server's JSON travels as MCP text content. Only the
+ * side and the symbol the user asked for are read, and the symbol only in a ticker's shape.
+ */
+const paperFillOf = (out: unknown): { side: string; symbol: string | null } | null => {
+  const texts = (out as { result?: { content?: { text?: unknown }[] } })?.result?.content ?? []
+  for (const c of texts) {
+    try {
+      const j = JSON.parse(String(c.text)) as { filled?: unknown; fill?: { side?: unknown; symbol?: unknown } }
+      if (j.filled !== true || !j.fill) continue
+      const symbol = typeof j.fill.symbol === 'string' && /^\$?[A-Za-z0-9._-]{1,20}$/.test(j.fill.symbol) ? j.fill.symbol : null
+      return { side: j.fill.side === 'sell' ? 'sell' : 'buy', symbol }
+    } catch {
+      // Not JSON: a refusal's text, so no fill.
+    }
+  }
+  return null
+}
+
 // The paper account is the saved wallet address. A store that cannot be read means no account, so
 // nothing is sent under a guessed one.
 const paperAccountOf = async ($: Dollar) => {
