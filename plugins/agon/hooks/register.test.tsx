@@ -1042,6 +1042,29 @@ test("a fill Claude makes refreshes the paper portfolio and says so in a toast; 
   expect(toasts.length).toBe(n)
 })
 
+test("Claude's paper_deposit goes on the saved wallet, then the portfolio is read again and a toast says how much", async ($, on) => {
+  on('command.register', async (_$, e) => ({ value: { command: e.name } }))
+  keep(on, { wallet: PF.PAPER_ACCOUNT })
+  const toasts: string[] = []
+  on('ui.toast', async (_$, e) => {
+    toasts.push(String((e as { text?: unknown }).text))
+    return { value: undefined }
+  })
+  const srv = paperServer(on, SOL_TOK, c => (c.name === 'paper_portfolio' ? PF.PORTFOLIO_AFTER_BUY : null))
+  const seen: Record<string, unknown>[] = []
+  on('tool.call', { tool: 'mcp__plugin_agon_agon__paper_deposit' }, async (_$, e) => {
+    seen.push(e as unknown as Record<string, unknown>)
+    return { result: { content: [{ type: 'text', text: JSON.stringify({ mode: 'paper', depositedNowUsdc: '500' }) }] } }
+  })
+  await open($, 'desktop')
+  const reads = () => srv.calls.filter(c => c.name === 'paper_portfolio').length
+  const before = reads()
+  await $.tool.call({ tool: 'mcp__plugin_agon_agon__paper_deposit', account: 'DNDYmqxubRKmMtnq88AW4aUHreu88XrrGijAKpUojw1A', amount: '500000000' } as never)
+  expect(seen.map(s => s.account)).toEqual([PF.PAPER_ACCOUNT])
+  expect(reads()).toBe(before + 1)
+  expect(toasts.at(-1)).toBe('Paper deposit: 500 USDC added. Portfolio updated.')
+})
+
 test('a paper trade check_trade refuses shows each reason with its number and limit, and no address means no call', async ($, on) => {
   on('command.register', async (_$, e) => ({ value: { command: e.name } }))
   on('ui.open', async () => ({ value: { isPlaced: true } }))

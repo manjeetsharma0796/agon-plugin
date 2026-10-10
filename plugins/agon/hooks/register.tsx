@@ -2116,7 +2116,7 @@ export const register: Register = on => {
   // Claude's own paper_trade calls go on the saved wallet, the 1 account this dashboard reads. The model
   // never picks it: a model-chosen address was a second paper ledger nobody could see (2026-10-10).
   // Both names, for the server this plugin ships and for one added by hand as "agon".
-  for (const tool of ['mcp__plugin_agon_agon__paper_trade', 'mcp__agon__paper_trade', 'mcp__plugin_agon_agon__paper_portfolio', 'mcp__agon__paper_portfolio']) {
+  for (const tool of ['paper_trade', 'paper_portfolio', 'paper_deposit'].flatMap(t => [`mcp__plugin_agon_agon__${t}`, `mcp__agon__${t}`])) {
     on('tool.call', { tool }, async ($, e, next) => {
       const account = await paperAccountOf($)
       if (!account) return { deny: 'No wallet is saved in Agon yet, so there is no paper account to use. Save the public address with /agon-wallet <address>, then ask again.' }
@@ -2128,6 +2128,13 @@ export const register: Register = on => {
         if (fill) {
           await readPaperPortfolio($)
           $.ui.toast(`Paper ${fill.side} filled${fill.symbol ? ` · ${fill.symbol}` : ''}. Portfolio updated.`, { timeoutMs: 6000 })
+        }
+      }
+      if (tool.endsWith('paper_deposit')) {
+        const added = paperDepositOf(out)
+        if (added) {
+          await readPaperPortfolio($)
+          $.ui.toast(`Paper deposit: ${added} USDC added. Portfolio updated.`, { timeoutMs: 6000 })
         }
       }
       return out
@@ -5118,6 +5125,19 @@ const paperFillOf = (out: unknown): { side: string; symbol: string | null } | nu
       return { side: j.fill.side === 'sell' ? 'sell' : 'buy', symbol }
     } catch {
       // Not JSON: a refusal's text, so no fill.
+    }
+  }
+  return null
+}
+
+/** The USDC a paper_deposit answer says it added, as a decimal string, or null on a refusal. */
+const paperDepositOf = (out: unknown): string | null => {
+  for (const c of (out as { result?: { content?: { text?: unknown }[] } })?.result?.content ?? []) {
+    try {
+      const v = (JSON.parse(String(c.text)) as { depositedNowUsdc?: unknown }).depositedNowUsdc
+      if (typeof v === 'string' && /^\d{1,9}(\.\d{1,6})?$/.test(v)) return v
+    } catch {
+      // Not JSON: a refusal's text.
     }
   }
   return null
