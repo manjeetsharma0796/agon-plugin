@@ -113,7 +113,7 @@ test('a fill resets the strikes and schedules the next slice; a refusal backs of
 const MCP_URL = 'https://agon-dev.onrender.com/mcp'
 const USDC = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'
 const T0 = Date.parse('2026-10-09T00:00:00Z')
-type Args = { account: string; side: string; inputMint: string; outputMint: string; amount: string }
+type Args = { account: string; side: string; symbol: string; inputMint: string; outputMint: string; amount: string }
 // A recorded fill with its amounts set to the order's: the shape is the server's own.
 const scaled = (fixture: string, inAmount: string, outAmount: string) =>
   fixture.replace(/(inAmount\W+)\d+/, `$1${inAmount}`).replace(/(outAmount\W+)\d+/, `$1${outAmount}`)
@@ -252,7 +252,7 @@ test('a Trail paper bot buys once, follows the peak and sells everything on the 
   await pane.press({ key: 'start' })
   await pane.unmount()
   await w.clock.advance(30_000)
-  expect(w.trades).toEqual([{ account: PF.PAPER_ACCOUNT, side: 'buy', inputMint: USDC, outputMint: WSOL, amount: '50000000' }])
+  expect(w.trades).toEqual([{ account: PF.PAPER_ACCOUNT, side: 'buy', symbol: 'SOL', inputMint: USDC, outputMint: WSOL, amount: '50000000' }])
   // Up to $120, then down 5%: still held. Down to $112.80, 6% off the peak: sold, all of it.
   for (const p of [115, 120, 114]) {
     w.price = p
@@ -261,7 +261,7 @@ test('a Trail paper bot buys once, follows the peak and sells everything on the 
   expect(w.trades.length).toBe(1)
   w.price = 112.8
   await w.clock.advance(30_000)
-  expect(w.trades.at(-1)).toEqual({ account: PF.PAPER_ACCOUNT, side: 'sell', inputMint: WSOL, outputMint: USDC, amount: '457764310' })
+  expect(w.trades.at(-1)).toEqual({ account: PF.PAPER_ACCOUNT, side: 'sell', symbol: 'SOL', inputMint: WSOL, outputMint: USDC, amount: '457764310' })
   w.price = 90
   await w.clock.advance(120_000)
   expect(w.trades.length).toBe(2)
