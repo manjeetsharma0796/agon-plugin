@@ -1319,3 +1319,33 @@ test('price and balance charts name their high, low and span: in the SVG on the 
   expect(await wterm.find({ type: 'Text', text: /^24h ago$/ })).toBeDefined()
   await wterm.unmount()
 })
+
+test('a paper change made outside the plugin is read at once when the server says so, and an older server is asked again only after 30 s', async ($, on) => {
+  const clock = mock.clock(on, { now: Date.parse('2026-10-10T00:00:00Z') })
+  on('command.register', async (_$, e) => ({ value: { command: e.name } }))
+  keep(on, { wallet: PF.PAPER_ACCOUNT })
+  on('ui.panes', async () => ({ value: [{ id: 'agon', title: 'Agon', isShown: true, isFocused: true, isPlaced: true }] }))
+  const log: string[] = []
+  let changes = 0
+  on('http.fetch', async (_$, e) => {
+    if (e.url === `https://agon-dev.onrender.com/paper/changes?account=${PF.PAPER_ACCOUNT}`) {
+      log.push('changes')
+      // Changed once; after that the route is missing, as on an older server, so it backs off 30 s.
+      return changes++ === 0 ? okText('{"ok":true,"changed":true}') : { value: { status: 404, ok: false, headers: {}, text: '{}' } }
+    }
+    const mcp = paperMcp(e)
+    if (mcp !== null && mcp === PF.PORTFOLIO_NEW) log.push('portfolio')
+    return okText(mcp ?? JSON.stringify([SOL_TOK]))
+  })
+  const pane = await open($, 'desktop')
+  await clock.advance(0)
+  expect(log.slice(0, 2)).toEqual(['changes', 'portfolio'])
+  // Asked again at once; that answer is a 404, so it waits 30 s before asking again.
+  await clock.advance(0)
+  expect(log.filter(l => l === 'changes').length).toBe(2)
+  await clock.advance(29_000)
+  expect(log.filter(l => l === 'changes').length).toBe(2)
+  await clock.advance(1_000)
+  expect(log.filter(l => l === 'changes').length).toBe(3)
+  await pane.unmount()
+})
