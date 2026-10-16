@@ -5900,10 +5900,11 @@ async function paperAccount($: Dollar, e: Site) {
     const alloc = (await $.state.get(PORT_KIND)).value === 'pie' ? null : allocationCard($, e, 'pa-alloc', width, priced)
     if (alloc) rows.push(alloc)
     // A holding no quote priced is not in the allocation: it says so, with why.
-    for (const h of b.holdings.filter(x => x.valueUsdc == null))
+    // Not h: JSX compiles to h(...), so a holding named h shadows it and the pane throws.
+    for (const hold of b.holdings.filter(x => x.valueUsdc == null))
       rows.push(
-        <Text key={`pa-nv-${h.mint}`} color={AG.gold} wrap="wrap">
-          {`${await amountOf($, h.mint, h.amount, sym[h.mint])} not valued: ${h.why ?? 'no quote'}`}
+        <Text key={`pa-nv-${hold.mint}`} color={AG.gold} wrap="wrap">
+          {`${await amountOf($, hold.mint, hold.amount, sym[hold.mint])} not valued: ${hold.why ?? 'no quote'}`}
         </Text>,
       )
     // Latest fills as an exchange's trade history lists them: the pair, the side in its colour and the

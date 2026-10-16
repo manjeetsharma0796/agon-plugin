@@ -1395,6 +1395,24 @@ test('each paper holding shows its P&L against cost under its value, deposits ar
   }
 })
 
+test('a paper holding no quote priced is listed as not valued, and the portfolio still draws', async ($, on) => {
+  on('command.register', async (_$, e) => ({ value: { command: e.name } }))
+  on('ui.open', async () => ({ value: { isPlaced: true } }))
+  // A holding Jupiter could not quote comes back with valueUsdc null and why; inside that loop the
+  // holding was named h, the name JSX compiles to, so drawing it threw and the whole pane went blank.
+  const book = editBook(PF.PORTFOLIO_AFTER_BUY, b => {
+    for (const h of b.holdings) if (h.mint === WSOL) Object.assign(h, { valueUsdc: null, why: '0 live Jupiter quotes into USDC (paper-quote-failed)' })
+  })
+  keep(on, { wallet: PF.PAPER_ACCOUNT, signupSeen: true })
+  const srv = paperServer(on, SOL_TOK, c => (c.name === 'paper_portfolio' ? book : null))
+  srv.paperMode()
+  const port = await open($, 'desktop', 100, 'portfolio')
+  await port.press({ key: 'paper-acct-refresh' })
+  expect(await port.find({ type: 'Text', text: /not valued/ }), 'no not-valued row').toBeDefined()
+  expect(await port.find({ type: 'Text', text: /not valued: 0 live Jupiter quotes into USDC \(paper-quote-failed\)/ })).toBeDefined()
+  await port.unmount()
+})
+
 test('a paper holding with no recorded cost says so in place of its P&L', async ($, on) => {
   on('command.register', async (_$, e) => ({ value: { command: e.name } }))
   on('ui.open', async () => ({ value: { isPlaced: true } }))
